@@ -117,10 +117,7 @@ public:
         connect(m_filterLineEdit, &QLineEdit::textChanged, &m_proxy, &QSortFilterProxyModel::setFilterFixedString);
 
         connect(m_resetShortcutsButton, &QPushButton::clicked, this, [this]() {
-            auto ac = ActionCollection::instance();
-            for (auto action : ac->actions()) {
-                action->setShortcut(ac->defaultShortcut(action));
-            }
+            ActionCollection::instance()->restoreShortcutsFromDefaults();
             loadSettings();
         });
 
@@ -142,23 +139,24 @@ public:
         m_changedActions.clear();
         m_filterLineEdit->clear();
         m_model.setRowCount(0);
-        const auto& actions = ActionCollection::instance()->actions();
-        for (auto a : actions) {
+        const auto ac = ActionCollection::instance();
+        for (auto a : ac->actions()) {
             auto name = a->toolTip().isEmpty() ? acceleratorsStrippedText(a->text()) : a->toolTip();
             auto col1 = new QStandardItem(name);
             col1->setData(QVariant::fromValue(a), Qt::UserRole);
-            auto col2 = new QStandardItem(a->shortcut().toString());
+            auto col2 = new QStandardItem(ac->shortcut(a).toString());
             m_model.appendRow({col1, col2});
         }
     }
 
     void saveSettings()
     {
-        if (m_changedActions.count()) {
-            for (const auto& action : m_changedActions.keys()) {
-                action->setShortcut(m_changedActions.value(action));
+        auto ac = ActionCollection::instance();
+        if (!m_changedActions.isEmpty()) {
+            for (auto it = m_changedActions.constBegin(), end = m_changedActions.constEnd(); it != end; ++it) {
+                ac->setShortcuts(it.key(), {it.value()});
             }
-            ActionCollection::instance()->saveShortcuts();
+            ac->saveShortcutsToConfig();
         }
         m_changedActions.clear();
         m_filterLineEdit->clear();
@@ -196,7 +194,7 @@ private:
             return;
         }
 
-        auto conflict = ActionCollection::instance()->isConflictingShortcut(action, change);
+        auto conflict = ActionCollection::instance()->getConflictingShortcut(action, change);
         bool hasConflict = false;
         if (conflict) {
             // we conflicted with an action inside action collection

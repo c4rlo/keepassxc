@@ -2056,7 +2056,15 @@ void MainWindow::initViewMenu()
 void MainWindow::initActionCollection()
 {
     auto ac = ActionCollection::instance();
-    ac->addActions({// Database Menu
+
+    // Register with the action collection a callback to intercept any shortcuts that match the system
+    // copy-to-clipboard shortcut (e.g. Ctrl-C); when one triggers, first give the database widget a chance
+    // to handle it by copying any selected text to the clipboard. We need to do this because
+    // some platforms do not properly handle that case themselves in the way we prefer.
+    ac->setCopyShortcutActionCallback(
+        [this]() -> bool { return m_ui->tabWidget->currentDatabaseWidget()->copyFocusedTextSelection(); });
+
+    ac->setActions({// Database Menu
                     m_ui->actionDatabaseNew,
                     m_ui->actionDatabaseOpen,
                     m_ui->actionDatabaseSave,
@@ -2143,13 +2151,6 @@ void MainWindow::initActionCollection()
                     m_ui->actionBugReport,
                     m_ui->actionAbout});
 
-    // Add actions whose shortcuts were set in the .ui file
-    for (const auto action : ac->actions()) {
-        if (!action->shortcut().isEmpty()) {
-            ac->setDefaultShortcut(action, action->shortcut());
-        }
-    }
-
     // Actions with standard shortcuts
     ac->setDefaultShortcut(m_ui->actionDatabaseOpen, QKeySequence::Open, Qt::CTRL + Qt::Key_O);
     ac->setDefaultShortcut(m_ui->actionDatabaseSave, QKeySequence::Save, Qt::CTRL + Qt::Key_S);
@@ -2192,7 +2193,7 @@ void MainWindow::initActionCollection()
     ac->setDefaultShortcut(m_ui->actionEntryAddToAgent, modifier + Qt::Key_H);
     ac->setDefaultShortcut(m_ui->actionEntryRemoveFromAgent, modifier + Qt::SHIFT + Qt::Key_H);
 
-    QTimer::singleShot(1, ac, &ActionCollection::restoreShortcuts);
+    QTimer::singleShot(1, ac, &ActionCollection::restoreShortcutsFromConfig);
 }
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)

@@ -18,8 +18,6 @@
 #include "ActionCollection.h"
 #include "core/Config.h"
 
-#include <QDebug>
-
 ActionCollection* ActionCollection::instance()
 {
     static ActionCollection ac;
@@ -28,37 +26,29 @@ ActionCollection* ActionCollection::instance()
 
 QList<QAction*> ActionCollection::actions() const
 {
-    return m_actions;
+    return m_actions.keys();
 }
 
-void ActionCollection::addAction(QAction* action)
-{
-    if (!m_actions.contains(action)) {
-        m_actions << action;
-    }
-}
-
-void ActionCollection::addActions(const QList<QAction*>& actions)
+void ActionCollection::setActions(std::initializer_list<QAction*> actions)
 {
     for (auto a : actions) {
-        addAction(a);
+        if (!m_actions.contains(a)) {
+            ActionInfo& ai = m_actions[a];
+            // Initialise default keys with what's set on the action
+            ai.defaultKeys = a->shortcuts();
+        }
     }
 }
 
-QKeySequence ActionCollection::defaultShortcut(const QAction* action) const
+QKeySequence ActionCollection::defaultShortcut(QAction* action) const
 {
-    auto shortcuts = defaultShortcuts(action);
+    const auto shortcuts = m_actions.value(action).defaultKeys;
     return shortcuts.isEmpty() ? QKeySequence() : shortcuts.first();
 }
 
-QList<QKeySequence> ActionCollection::defaultShortcuts(const QAction* action) const
+void ActionCollection::setDefaultShortcut(QAction* action, const QKeySequence& keys)
 {
-    return action->property("defaultShortcuts").value<QList<QKeySequence>>();
-}
-
-void ActionCollection::setDefaultShortcut(QAction* action, const QKeySequence& shortcut)
-{
-    setDefaultShortcuts(action, {shortcut});
+    setDefaultShortcuts(action, {keys});
 }
 
 void ActionCollection::setDefaultShortcut(QAction* action,
@@ -72,52 +62,104 @@ void ActionCollection::setDefaultShortcut(QAction* action,
     }
 }
 
-void ActionCollection::setDefaultShortcuts(QAction* action, const QList<QKeySequence>& shortcuts)
+void ActionCollection::setDefaultShortcuts(QAction* action, const QList<QKeySequence>& keys)
 {
-    action->setShortcuts(shortcuts);
-    action->setProperty("defaultShortcuts", QVariant::fromValue(shortcuts));
+    setShortcuts(action, keys);
+    m_actions[action].defaultKeys = keys;
 }
 
-void ActionCollection::restoreShortcuts()
+const QKeySequence ActionCollection::shortcut(QAction* a) const
 {
-    const auto shortcuts = Config::instance()->getShortcuts();
-    QHash<QString, QAction*> actionsByName;
-    for (auto action : m_actions) {
-        actionsByName.insert(action->objectName(), action);
+    const ActionInfo& ai = m_actions.value(a);
+    if (!ai.copyShortcuts.isEmpty()) {
+        return ai.copyShortcuts.front()->key();
     }
-    for (const auto& shortcut : shortcuts) {
+    return a->shortcut();
+}
+
+void ActionCollection::setShortcuts(QAction* action, const QList<QKeySequence>& keys)
+{
+    // For any provided shortcuts that match the system shortcut for copy-to-clipboard,
+    // instead of registering them directly with the action, give the
+    // m_copyShortcutActionCallback a chance to intercept the event.
+
+    ActionInfo& ai = m_actions[action];
+    ai.copyShortcuts.clear();
+
+    QList<QKeySequence> otherShortcuts;
+    for (const QKeySequence& k : keys) {
+        static const auto copyShortcuts = QKeySequence::keyBindings(QKeySequence::Copy);
+        if (copyShortcuts.contains(k)) {
+            const auto shortcut = new QShortcut(action->parentWidget());
+            shortcut->setKey(k);
+            connect(shortcut, &QShortcut::activated, this, [this, action]() {
+                if (m_copyShortcutActionCallback && m_copyShortcutActionCallback()) {
+                    return;
+                }
+                action->activate(QAction::Trigger);
+            });
+            ai.copyShortcuts.append(shortcut);
+        } else {
+            otherShortcuts.append(k);
+        }
+    }
+
+    action->setShortcuts(otherShortcuts);
+}
+
+void ActionCollection::restoreShortcutsFromDefaults()
+{
+    for (auto it = m_actions.constBegin(), end = m_actions.constEnd(); it != end; ++it) {
+        setShortcuts(it.key(), it.value().defaultKeys);
+    }
+}
+
+void ActionCollection::restoreShortcutsFromConfig()
+{
+    const auto configShortcuts = Config::instance()->getShortcuts();
+    QHash<QString, QAction*> actionsByName;
+    for (auto it = m_actions.keyBegin(), end = m_actions.keyEnd(); it != end; ++it) {
+        actionsByName.insert((*it)->objectName(), *it);
+    }
+    for (const auto& shortcut : configShortcuts) {
         if (actionsByName.contains(shortcut.name)) {
             const auto key = QKeySequence::fromString(shortcut.shortcut);
-            actionsByName.value(shortcut.name)->setShortcut(key);
+            setShortcuts(actionsByName.value(shortcut.name), {key});
         }
     }
 }
 
-void ActionCollection::saveShortcuts()
+void ActionCollection::saveShortcutsToConfig()
 {
-    QList<Config::ShortcutEntry> shortcuts;
-    shortcuts.reserve(m_actions.size());
-    for (auto a : m_actions) {
+    QList<Config::ShortcutEntry> configShortcuts;
+    configShortcuts.reserve(m_actions.size());
+    for (auto it = m_actions.keyBegin(), end = m_actions.keyEnd(); it != end; ++it) {
         // Only store non-default shortcut assignments
-        if (a->shortcut() != defaultShortcut(a)) {
-            shortcuts << Config::ShortcutEntry{a->objectName(), a->shortcut().toString()};
+        const auto s = shortcut(*it);
+        if (s != defaultShortcut(*it)) {
+            configShortcuts << Config::ShortcutEntry{(*it)->objectName(), s.toString()};
         }
     }
-    Config::instance()->setShortcuts(shortcuts);
+    Config::instance()->setShortcuts(configShortcuts);
 }
 
-QAction* ActionCollection::isConflictingShortcut(const QAction* action, const QKeySequence& seq) const
+QAction* ActionCollection::getConflictingShortcut(const QAction* action, const QKeySequence& seq) const
 {
     // Empty sequences don't conflict with anything
     if (seq.isEmpty()) {
         return nullptr;
     }
 
-    for (auto a : m_actions) {
-        if (a != action && a->shortcut() == seq) {
-            return a;
+    for (auto it = m_actions.keyBegin(), end = m_actions.keyEnd(); it != end; ++it) {
+        if (*it != action && shortcut(*it) == seq) {
+            return *it;
         }
     }
 
     return nullptr;
+}
+
+void ActionCollection::setCopyShortcutActionCallback(const std::function<bool()>& callback)
+{
+    m_copyShortcutActionCallback = callback;
 }

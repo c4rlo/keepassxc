@@ -19,8 +19,14 @@
 #define KEEPASSXC_ACTION_COLLECTION_H
 
 #include <QAction>
+#include <QHash>
 #include <QKeySequence>
 #include <QObject>
+#include <QPointer>
+#include <QShortcut>
+
+#include <functional>
+#include <initializer_list>
 
 /**
  * This class manages all actions that are shortcut configurable.
@@ -36,26 +42,42 @@ public:
     static ActionCollection* instance();
 
     QList<QAction*> actions() const;
+    void setActions(std::initializer_list<QAction*> actions);
 
-    void addAction(QAction* action);
-    void addActions(const QList<QAction*>& actions);
-
-    QKeySequence defaultShortcut(const QAction* a) const;
-    QList<QKeySequence> defaultShortcuts(const QAction* a) const;
-
-    void setDefaultShortcut(QAction* a, const QKeySequence& shortcut);
+    QKeySequence defaultShortcut(QAction* a) const;
+    void setDefaultShortcut(QAction* a, const QKeySequence& keys);
     void setDefaultShortcut(QAction* a, QKeySequence::StandardKey standard, const QKeySequence& fallback);
-    void setDefaultShortcuts(QAction* a, const QList<QKeySequence>& shortcut);
+    void setDefaultShortcuts(QAction* a, const QList<QKeySequence>& keys);
 
-    // Check if any action conflicts with @p seq and return the conflicting action
-    QAction* isConflictingShortcut(const QAction* action, const QKeySequence& seq) const;
+    const QKeySequence shortcut(QAction* a) const;
+    void setShortcuts(QAction* a, const QList<QKeySequence>& keys);
 
-public slots:
-    void restoreShortcuts();
-    void saveShortcuts();
+    // Check if any action conflicts with @p seq and return the conflicting action or nullptr
+    QAction* getConflictingShortcut(const QAction* action, const QKeySequence& seq) const;
+
+    // Register a callback function that gets invoked when a shortcut gets triggered
+    // that has been registered with an action, but that is also a system shortcut
+    // for the copy-to-clipboard action. If the callback function return true, the
+    // action is not triggered.
+    void setCopyShortcutActionCallback(const std::function<bool()>& callback);
+
+    void restoreShortcutsFromDefaults();
+    void restoreShortcutsFromConfig();
+    void saveShortcutsToConfig();
 
 private:
-    QList<QAction*> m_actions;
+    struct ActionInfo
+    {
+        // Default shortcut for action
+        QList<QKeySequence> defaultKeys;
+
+        // Shortcuts for action that conflict with system-wide copy-to-clipboard action;
+        // these get special handling. (Normally, shortcuts are set directly on the action.)
+        QList<QPointer<QShortcut>> copyShortcuts;
+    };
+
+    QHash<QAction*, ActionInfo> m_actions;
+    std::function<bool()> m_copyShortcutActionCallback;
 };
 
 #endif

@@ -183,6 +183,7 @@ public slots:
     void copyTotp();
     void copyPasswordTotp();
     void setupTotp();
+    bool copyFocusedTextSelection();
 #ifdef WITH_XC_SSHAGENT
     void addToAgent();
     void removeFromAgent();
