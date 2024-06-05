@@ -34,7 +34,6 @@
 #include "core/PasswordHealth.h"
 #include "core/Tools.h"
 #include "crypto/Crypto.h"
-#include "gui/ActionCollection.h"
 #include "gui/ApplicationSettingsWidget.h"
 #include "gui/CategoryListWidget.h"
 #include "gui/CloneDialog.h"
@@ -45,7 +44,6 @@
 #include "gui/PasswordGeneratorWidget.h"
 #include "gui/PasswordWidget.h"
 #include "gui/SearchWidget.h"
-#include "gui/ShortcutSettingsPage.h"
 #include "gui/TotpDialog.h"
 #include "gui/TotpSetupDialog.h"
 #include "gui/databasekey/KeyFileEditWidget.h"
@@ -123,8 +121,8 @@ void TestGui::init()
     auto origFilePath = QDir(KEEPASSX_TEST_DATA_DIR).absoluteFilePath("NewDatabase.kdbx");
     QVERIFY(m_dbFile.copyFromFile(origFilePath));
 
-    m_dbFileName = QFileInfo(m_dbFile.fileName()).fileName();
     m_dbFilePath = m_dbFile.fileName();
+    m_dbFileName = QFileInfo(m_dbFilePath).fileName();
 
     // make sure window is activated or focus tests may fail
     m_mainWindow->activateWindow();
@@ -138,7 +136,6 @@ void TestGui::init()
     m_dbWidget = m_tabWidget->currentDatabaseWidget();
     auto* databaseOpenWidget = m_tabWidget->currentDatabaseWidget()->findChild<QWidget*>("databaseOpenWidget");
     QVERIFY(databaseOpenWidget);
-    // editPassword is not QLineEdit anymore but PasswordWidget
     auto* editPassword =
         databaseOpenWidget->findChild<PasswordWidget*>("editPassword")->findChild<QLineEdit*>("passwordEdit");
     QVERIFY(editPassword);
@@ -1047,6 +1044,7 @@ void TestGui::testSearch()
     searchTextEdit->selectAll();
     QTest::keyClick(searchTextEdit, Qt::Key_C, Qt::ControlModifier);
     QTRY_COMPARE(clipboard->text(), QString("someTHING"));
+    // TODO: ensure text copies if selected and clicking on copy password button
 
     // Test case sensitive search
     searchWidget->setCaseSensitive(true);
@@ -1827,41 +1825,41 @@ void TestGui::testTrayRestoreHide()
 
 void TestGui::testShortcutConfig()
 {
+    auto& actionCollection = m_mainWindow->actionCollection();
+
     // Action collection should not be empty
-    QVERIFY(!ActionCollection::instance()->actions().isEmpty());
+    QVERIFY(!actionCollection.actions().isEmpty());
 
     // Add an action, make sure it gets added
-    QAction* a = new QAction(ActionCollection::instance());
+    auto a = new QAction();
     a->setObjectName("MyAction1");
-    ActionCollection::instance()->addAction(a);
-    QVERIFY(ActionCollection::instance()->actions().contains(a));
-
     const QKeySequence seq(Qt::CTRL + Qt::SHIFT + Qt::ALT + Qt::Key_N);
-    ActionCollection::instance()->setDefaultShortcut(a, seq);
-    QCOMPARE(ActionCollection::instance()->defaultShortcut(a), seq);
+    actionCollection.addAction(a, seq);
+    QVERIFY(actionCollection.actions().contains(a));
+    QCOMPARE(actionCollection.defaultShortcut(a), seq);
 
     bool v = false;
     m_mainWindow->addAction(a);
-    connect(a, &QAction::triggered, ActionCollection::instance(), [&v] { v = !v; });
+    connect(a, &QAction::triggered, &actionCollection, [&v] { v = !v; });
     QTest::keyClick(m_mainWindow.data(), Qt::Key_N, Qt::ControlModifier | Qt::ShiftModifier | Qt::AltModifier);
     QVERIFY(v);
 
     // Change shortcut and save
     const QKeySequence newSeq(Qt::CTRL + Qt::SHIFT + Qt::ALT + Qt::Key_M);
-    a->setShortcut(newSeq);
-    QVERIFY(a->shortcut() != ActionCollection::instance()->defaultShortcut(a));
-    ActionCollection::instance()->saveShortcuts();
-    QCOMPARE(a->shortcut(), newSeq);
-    const auto shortcuts = Config::instance()->getShortcuts();
-    Config::ShortcutEntry entryForA;
-    for (const auto& s : shortcuts) {
+    actionCollection.setShortcuts(a, {newSeq});
+    QCOMPARE(actionCollection.shortcut(a), newSeq);
+    QVERIFY(actionCollection.shortcut(a) != actionCollection.defaultShortcut(a));
+    actionCollection.saveShortcutsToConfig();
+    const auto configShortcuts = Config::instance()->getShortcuts();
+    Config::ShortcutEntry configForA;
+    for (const auto& s : configShortcuts) {
         if (s.name == a->objectName()) {
-            entryForA = s;
+            configForA = s;
             break;
         }
     }
-    QCOMPARE(entryForA.name, a->objectName());
-    QCOMPARE(QKeySequence::fromString(entryForA.shortcut), a->shortcut());
+    QCOMPARE(configForA.name, a->objectName());
+    QCOMPARE(QKeySequence::fromString(configForA.shortcut), a->shortcut());
 
     // trigger the old shortcut
     QTest::keyClick(m_mainWindow.data(), Qt::Key_N, Qt::ControlModifier | Qt::ShiftModifier | Qt::AltModifier);

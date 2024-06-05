@@ -20,10 +20,12 @@
 
 #include "gui/ApplicationSettingsWidget.h"
 
+class ActionCollection;
+
 class ShortcutSettingsPage : public ISettingsPage
 {
 public:
-    explicit ShortcutSettingsPage() = default;
+    explicit ShortcutSettingsPage(ActionCollection* actionCollection);
     ~ShortcutSettingsPage() override = default;
 
     QString name() override;
@@ -31,6 +33,9 @@ public:
     QWidget* createWidget() override;
     void loadSettings(QWidget* widget) override;
     void saveSettings(QWidget* widget) override;
+
+private:
+    ActionCollection* m_actionCollection;
 };
 
 #endif // KEEPASSXC_BROWSERSETTINGSPAGE_H

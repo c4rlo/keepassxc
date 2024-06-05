@@ -27,6 +27,7 @@
 #include <QTimer>
 
 #include "core/SignalMultiplexer.h"
+#include "gui/ActionCollection.h"
 #include "gui/DatabaseWidget.h"
 #include "gui/osutils/ScreenLockListener.h"
 
@@ -52,8 +53,10 @@ public:
     ~MainWindow() override;
 
     QList<DatabaseWidget*> getOpenDatabases();
-    void restoreConfigState();
     void setAllowScreenCapture(bool state);
+
+    // Public for tests only
+    ActionCollection& actionCollection();
 
     enum StackedWidgetIndex
     {
@@ -154,6 +157,7 @@ private slots:
 private:
     static const QString BaseWindowTitle;
 
+    void restoreConfigState();
     void saveWindowInformation();
     bool saveLastDatabases();
     bool isTrayIconEnabled() const;
@@ -168,6 +172,7 @@ private:
 
     const QScopedPointer<Ui::MainWindow> m_ui;
     SignalMultiplexer m_actionMultiplexer;
+    ActionCollection m_actionCollection;
     QPointer<QAction> m_clearHistoryAction;
     QPointer<QAction> m_searchWidgetAction;
     QPointer<QMenu> m_entryContextMenu;

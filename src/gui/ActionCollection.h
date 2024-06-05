@@ -26,7 +26,6 @@
 #include <QShortcut>
 
 #include <functional>
-#include <initializer_list>
 
 /**
  * This class manages all actions that are shortcut configurable.
@@ -36,19 +35,17 @@
 class ActionCollection : public QObject
 {
     Q_OBJECT
-    ActionCollection() = default;
 
 public:
-    static ActionCollection* instance();
+    ActionCollection() = default;
 
     QList<QAction*> actions() const;
-    void setActions(std::initializer_list<QAction*> actions);
+    void addAction(QAction* a);
+    void addAction(QAction* a, const QKeySequence& defaultShortcut);
+    void addAction(QAction* a, QKeySequence::StandardKey defaultShortcut, const QKeySequence& fallback);
+    void addAction(QAction* a, const QList<QKeySequence>& defaultShortcuts);
 
     QKeySequence defaultShortcut(QAction* a) const;
-    void setDefaultShortcut(QAction* a, const QKeySequence& keys);
-    void setDefaultShortcut(QAction* a, QKeySequence::StandardKey standard, const QKeySequence& fallback);
-    void setDefaultShortcuts(QAction* a, const QList<QKeySequence>& keys);
-
     const QKeySequence shortcut(QAction* a) const;
     void setShortcuts(QAction* a, const QList<QKeySequence>& keys);
 
@@ -69,7 +66,7 @@ private:
     struct ActionInfo
     {
         // Default shortcut for action
-        QList<QKeySequence> defaultKeys;
+        QList<QKeySequence> defaultShortcuts;
 
         // Shortcuts for action that conflict with system-wide copy-to-clipboard action;
         // these get special handling. (Normally, shortcuts are set directly on the action.)
@@ -78,6 +75,8 @@ private:
 
     QHash<QAction*, ActionInfo> m_actions;
     std::function<bool()> m_copyShortcutActionCallback;
+
+    Q_DISABLE_COPY(ActionCollection)
 };
 
 #endif

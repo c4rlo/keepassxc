@@ -90,11 +90,12 @@ private:
 class ShortcutSettingsWidget final : public QWidget
 {
 public:
-    explicit ShortcutSettingsWidget(QWidget* parent = nullptr)
-        : QWidget(parent)
+    explicit ShortcutSettingsWidget(ActionCollection* actionCollection)
+        : QWidget()
         , m_tableView(new QTableView(this))
         , m_filterLineEdit(new QLineEdit(this))
         , m_resetShortcutsButton(new QPushButton(tr("Reset Shortcuts"), this))
+        , m_actionCollection(actionCollection)
     {
         auto h = new QHBoxLayout();
         h->addWidget(m_filterLineEdit);
@@ -117,7 +118,7 @@ public:
         connect(m_filterLineEdit, &QLineEdit::textChanged, &m_proxy, &QSortFilterProxyModel::setFilterFixedString);
 
         connect(m_resetShortcutsButton, &QPushButton::clicked, this, [this]() {
-            ActionCollection::instance()->restoreShortcutsFromDefaults();
+            m_actionCollection->restoreShortcutsFromDefaults();
             loadSettings();
         });
 
@@ -139,24 +140,22 @@ public:
         m_changedActions.clear();
         m_filterLineEdit->clear();
         m_model.setRowCount(0);
-        const auto ac = ActionCollection::instance();
-        for (auto a : ac->actions()) {
+        for (auto a : m_actionCollection->actions()) {
             auto name = a->toolTip().isEmpty() ? acceleratorsStrippedText(a->text()) : a->toolTip();
             auto col1 = new QStandardItem(name);
             col1->setData(QVariant::fromValue(a), Qt::UserRole);
-            auto col2 = new QStandardItem(ac->shortcut(a).toString());
+            auto col2 = new QStandardItem(m_actionCollection->shortcut(a).toString());
             m_model.appendRow({col1, col2});
         }
     }
 
     void saveSettings()
     {
-        auto ac = ActionCollection::instance();
         if (!m_changedActions.isEmpty()) {
             for (auto it = m_changedActions.constBegin(), end = m_changedActions.constEnd(); it != end; ++it) {
-                ac->setShortcuts(it.key(), {it.value()});
+                m_actionCollection->setShortcuts(it.key(), {it.value()});
             }
-            ac->saveShortcutsToConfig();
+            m_actionCollection->saveShortcutsToConfig();
         }
         m_changedActions.clear();
         m_filterLineEdit->clear();
@@ -188,13 +187,13 @@ private:
         if (ret == QDialog::Accepted) {
             change = dialog.keySequence();
         } else if (dialog.shouldRestoreDefault()) {
-            change = ActionCollection::instance()->defaultShortcut(action);
+            change = m_actionCollection->defaultShortcut(action);
         } else {
             // Rejected
             return;
         }
 
-        auto conflict = ActionCollection::instance()->getConflictingShortcut(action, change);
+        auto conflict = m_actionCollection->getConflictingShortcut(action, change);
         bool hasConflict = false;
         if (conflict) {
             // we conflicted with an action inside action collection
@@ -252,7 +251,13 @@ private:
     QStandardItemModel m_model;
     QSortFilterProxyModel m_proxy;
     QHash<QAction*, QKeySequence> m_changedActions;
+    ActionCollection* m_actionCollection;
 };
+
+ShortcutSettingsPage::ShortcutSettingsPage(ActionCollection* actionCollection)
+: m_actionCollection(actionCollection)
+{
+}
 
 QString ShortcutSettingsPage::name()
 {
@@ -266,7 +271,7 @@ QIcon ShortcutSettingsPage::icon()
 
 QWidget* ShortcutSettingsPage::createWidget()
 {
-    return new ShortcutSettingsWidget();
+    return new ShortcutSettingsWidget(m_actionCollection);
 }
 
 void ShortcutSettingsPage::loadSettings(QWidget* widget)
